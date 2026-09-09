@@ -3,27 +3,28 @@ Step 6: Fine-tune the existing best_crnn.pth on the combined dataset
 (IAM + synthetic digit strings), oversampling digit rows with a
 WeightedRandomSampler so they aren't drowned out by IAM's letter-heavy lines.
 
-This assumes your existing model.py / dataset.py from the project are
-importable (run this from the J:\\HTR project root, or add it to sys.path).
+Install this project in editable mode before running the command.
 
 Usage:
-    python 05_finetune.py --combined_dir data/combined --checkpoint best_crnn.pth \
-        --out best_crnn_finetuned.pth --epochs 6 --digit_oversample 8
+    python scripts/training/finetune.py --combined_dir data/combined \
+        --checkpoint artifacts/checkpoints/best_crnn.pth \
+        --out artifacts/checkpoints/best_crnn_finetuned.pth --epochs 6 --digit_oversample 8
 """
 import argparse
-import sys
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-# Adjust this import path if needed to point at your existing project files.
-sys.path.append(".")
-from model import ResNet18_CRNN, NUM_CLASSES   # noqa: E402  (from your existing model.py)
-from dataset import TextDataset, collate_fn    # noqa: E402  (from your existing dataset.py)
+from contact_scanner_backend.model import NUM_CLASSES, ResNet18_CRNN
+from contact_scanner_backend.dataset import TextDataset, collate_fn
 
 
 def build_weighted_sampler(csv_path, digit_oversample):
-    df = pd.read_csv(csv_path)
+    if digit_oversample <= 0:
+        raise ValueError("digit_oversample must be greater than zero")
+    df = pd.read_csv(csv_path, dtype={"source": str}, keep_default_na=False)
+    if "source" not in df.columns:
+        raise ValueError(f"{csv_path} is missing required column: source")
     weights = df["source"].apply(lambda s: digit_oversample if s == "digits" else 1.0).values
     return WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
 
@@ -40,6 +41,9 @@ def main():
                          help="Relative sampling weight for digit-source rows vs IAM rows")
     args = parser.parse_args()
 
+    if args.epochs <= 0 or args.batch_size <= 0 or args.lr <= 0:
+        parser.error("--epochs, --batch_size, and --lr must be greater than zero")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_csv = f"{args.combined_dir}/train.csv"
@@ -55,7 +59,9 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                              num_workers=0, pin_memory=True, collate_fn=collate_fn)
 
-    model = ResNet18_CRNN(num_classes=NUM_CLASSES).to(device)
+    # The checkpoint replaces every parameter, so downloading ImageNet weights
+    # here is unnecessary and makes fine-tuning fail in offline environments.
+    model = ResNet18_CRNN(num_classes=NUM_CLASSES, pretrained=False).to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)

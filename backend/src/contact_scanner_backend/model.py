@@ -10,9 +10,10 @@ IDX_TO_CHAR = {idx: char for idx, char in enumerate(CHARS)}
 NUM_CLASSES = len(CHARS)
 
 class ResNet18_CRNN(nn.Module):
-    def __init__(self, num_classes=NUM_CLASSES, hidden_size=256):
+    def __init__(self, num_classes=NUM_CLASSES, hidden_size=256, pretrained=True):
         super().__init__()
-        backbone = resnet18(weights=ResNet18_Weights.DEFAULT)
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        backbone = resnet18(weights=weights)
         
         self.conv1 = backbone.conv1
         self.bn1 = backbone.bn1

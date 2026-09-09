@@ -1,0 +1,11 @@
+# Core training and dataset pipeline (Python 3.11+)
+datasets>=2.16
+numpy>=1.24
+opencv-python-headless>=4.8
+pandas>=2.0
+Pillow>=10.0
+torch>=2.1
+torchvision>=0.16
+
+# ONNX export and validation
+onnx>=1.15

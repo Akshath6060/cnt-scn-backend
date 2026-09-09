@@ -5,11 +5,25 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from model import CHAR_TO_IDX
+from .model import CHAR_TO_IDX
 
 class TextDataset(Dataset):
     def __init__(self, csv_path, img_dir, target_height=32, target_width=800):
-        self.df = pd.read_csv(csv_path)
+        if target_height <= 0 or target_width <= 0:
+            raise ValueError("target_height and target_width must be positive")
+
+        # Labels can be phone numbers. Reading them as numbers would silently
+        # turn e.g. "0123456789" into "123456789" and poison the ground truth.
+        self.df = pd.read_csv(
+            csv_path,
+            dtype={"filename": str, "label": str},
+            keep_default_na=False,
+        )
+        required_columns = {"filename", "label"}
+        missing_columns = required_columns.difference(self.df.columns)
+        if missing_columns:
+            missing = ", ".join(sorted(missing_columns))
+            raise ValueError(f"Dataset CSV is missing required columns: {missing}")
         self.img_dir = img_dir
         self.h = target_height
         self.w = target_width
@@ -25,12 +39,12 @@ class TextDataset(Dataset):
         img_path = os.path.join(self.img_dir, img_name)
         img = cv2.imread(img_path)
         if img is None:
-            img = np.full((self.h, self.w, 3), 255, dtype=np.uint8)
+            raise FileNotFoundError(f"Could not read dataset image: {img_path}")
         
         # Maintain aspect ratio and scale height to 32px
         h, w, _ = img.shape
         scale = self.h / max(h, 1)
-        new_w = min(int(w * scale), self.w)
+        new_w = max(1, min(round(w * scale), self.w))
         resized = cv2.resize(img, (new_w, self.h))
         
         # Right pad canvas with white background (255)
@@ -42,8 +56,10 @@ class TextDataset(Dataset):
         
         # Map label characters to indices, skip unknown
         target_indices = [CHAR_TO_IDX[c] for c in label if c in CHAR_TO_IDX]
-        if len(target_indices) == 0:
-            target_indices = [CHAR_TO_IDX.get(" ", 1)]
+        if not target_indices:
+            raise ValueError(
+                f"Label for {img_name!r} is empty or contains no supported characters"
+            )
             
         return tensor_img, torch.tensor(target_indices, dtype=torch.long)
 

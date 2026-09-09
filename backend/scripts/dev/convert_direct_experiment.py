@@ -4,11 +4,12 @@ sys.stdout.reconfigure(line_buffering=True)
 import os
 import torch
 import tensorflow as tf
-from model import ResNet18_CRNN, NUM_CLASSES
+from contact_scanner_backend.model import NUM_CLASSES, ResNet18_CRNN
+from contact_scanner_backend.paths import DEFAULT_CHECKPOINT
 
 print("Step 1: Loading PyTorch trained weights...")
-pt_model = ResNet18_CRNN(num_classes=NUM_CLASSES)
-pt_model.load_state_dict(torch.load("best_crnn.pth", map_location="cpu"))
+pt_model = ResNet18_CRNN(num_classes=NUM_CLASSES, pretrained=False)
+pt_model.load_state_dict(torch.load(DEFAULT_CHECKPOINT, map_location="cpu"))
 pt_model.eval()
 
 print("Step 2: Building equivalent Keras/TensorFlow model...")

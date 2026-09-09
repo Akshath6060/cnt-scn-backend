@@ -1,11 +1,13 @@
 # train.py
 import sys
-sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from model import ResNet18_CRNN, NUM_CLASSES
-from dataset import TextDataset, collate_fn
+from contact_scanner_backend.model import NUM_CLASSES, ResNet18_CRNN
+from contact_scanner_backend.dataset import TextDataset, collate_fn
+from contact_scanner_backend.paths import DATA_DIR, DEFAULT_CHECKPOINT
 
 BATCH_SIZE = 16  # Width is 800, 16 fits comfortably in 8GB VRAM
 EPOCHS = 20
@@ -13,10 +15,11 @@ LEARNING_RATE = 3e-4
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Training on device: {device} ({torch.cuda.get_device_name(0)})")
+    device_name = torch.cuda.get_device_name(0) if device.type == "cuda" else "CPU"
+    print(f"Training on device: {device} ({device_name})")
 
-    train_dataset = TextDataset("data/train.csv", "data/images", target_height=32, target_width=800)
-    val_dataset = TextDataset("data/val.csv", "data/images", target_height=32, target_width=800)
+    train_dataset = TextDataset(DATA_DIR / "train.csv", DATA_DIR / "images", target_height=32, target_width=800)
+    val_dataset = TextDataset(DATA_DIR / "val.csv", DATA_DIR / "images", target_height=32, target_width=800)
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn, num_workers=0, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
@@ -76,10 +79,11 @@ def main():
         
         if avg_val_loss < best_loss:
             best_loss = avg_val_loss
-            torch.save(model.state_dict(), "best_crnn.pth")
+            DEFAULT_CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), DEFAULT_CHECKPOINT)
             print(f"  --> Saved new best checkpoint (Val Loss: {best_loss:.4f})")
 
-    print("Training finished. File saved as best_crnn.pth")
+    print(f"Training finished. File saved as {DEFAULT_CHECKPOINT}")
 
 if __name__ == '__main__':
     main()

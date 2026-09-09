@@ -1,0 +1,7 @@
+# The ONNX -> TensorFlow conversion toolchain documented in docs/PROJECT_PHASES.md
+# requires Python 3.11 and is intentionally isolated from the core environment.
+tensorflow==2.15.0
+tensorflow-addons==0.22.0
+tensorflow-probability==0.23.0
+onnx==1.15.0
+onnx-tf==1.10.0

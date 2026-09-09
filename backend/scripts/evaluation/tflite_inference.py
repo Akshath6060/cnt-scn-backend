@@ -4,14 +4,13 @@ one or more real handwritten phone-number crops, without touching the
 Flutter app.
 
 Usage:
-    python test_tflite_inference.py --image path/to/phone_number_crop.jpg
-    python test_tflite_inference.py --image_dir path/to/folder_of_crops
+    python scripts/evaluation/tflite_inference.py --image path/to/phone_number_crop.jpg
+    python scripts/evaluation/tflite_inference.py --image_dir path/to/folder_of_crops
 """
 import argparse
 import os
-import numpy as np
-import cv2
-import tensorflow as tf
+
+from contact_scanner_backend.paths import DEFAULT_TFLITE_MODEL
 
 CHARS = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ !\"'(),.:;?+@/-#*&"
 IDX_TO_CHAR = {idx: char for idx, char in enumerate(CHARS)}
@@ -20,13 +19,16 @@ TARGET_W = 800
 
 
 def preprocess(img_path):
+    import cv2
+    import numpy as np
+
     img = cv2.imread(img_path)
     if img is None:
         raise FileNotFoundError(f"Could not read image: {img_path}")
 
     h, w, _ = img.shape
     scale = TARGET_H / max(h, 1)
-    new_w = min(int(w * scale), TARGET_W)
+    new_w = max(1, min(round(w * scale), TARGET_W))
     resized = cv2.resize(img, (new_w, TARGET_H))
 
     canvas = np.full((TARGET_H, TARGET_W, 3), 255, dtype=np.uint8)
@@ -76,8 +78,10 @@ def run_inference(interpreter, img_path):
 
 
 def main():
+    import tensorflow as tf
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="crnn_handwritten.tflite")
+    parser.add_argument("--model", default=str(DEFAULT_TFLITE_MODEL))
     parser.add_argument("--image", help="Single image path")
     parser.add_argument("--image_dir", help="Folder of images to test in batch")
     args = parser.parse_args()

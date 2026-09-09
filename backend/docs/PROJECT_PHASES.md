@@ -71,16 +71,16 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
 
 ---
 
-### Phase 0.2: Model Architecture & Verification (`model.py` & `test_forward.py`)
+### Phase 0.2: Model Architecture & Verification (`model.py` & `tests/test_model_forward.py`)
 * **Objective:** Construct the ResNet18-CRNN model with CTC output head and verify forward tensor math.
 * **Implementation Details:**
-  * Created [`model.py`](file:///J:/HTR/model.py):
+  * Created [`model.py`](../src/contact_scanner_backend/model.py):
     * Imported torchvision's pretrained `resnet18`.
     * **Stride Modulation:** Standard ResNet downsamples spatial dimensions by a factor of 32 in both height and width. For text line recognition, aggressive horizontal downsampling squashes adjacent characters into single feature columns. To preserve sequence width along the time dimension, strides in `layer3` and `layer4` were modified to `(2, 1)`.
     * Coupled the CNN output to a 2-layer `nn.LSTM(bidirectional=True, hidden_size=256)`.
     * Output projection mapped to `NUM_CLASSES` (initially 67, subsequently expanded to 81).
 * **Verification:**
-  * Created [`test_forward.py`](file:///J:/HTR/test_forward.py) feeding a synthetic batch of `(4, 3, 32, 280)`.
+  * Created [`test_model_forward.py`](../tests/test_model_forward.py) feeding a synthetic batch of `(4, 3, 32, 280)`.
   * Forward pass completed successfully on CUDA yielding tensor shape `(4, 35, NUM_CLASSES)`.
 
 ---
@@ -88,7 +88,7 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
 ### Phase 0.3: Benchmark Dataset Acquisition (`download_iam.py`)
 * **Objective:** Acquire real-world human handwriting data rather than synthetic computer fonts to learn natural stroke width, cursive connections, and baseline slants.
 * **Implementation Details:**
-  * Created [`download_iam.py`](file:///J:/HTR/download_iam.py) utilizing the HuggingFace `datasets` library to stream the academic benchmark **IAM Line Database** (`Teklia/IAM-line`).
+  * Created [`download_iam.py`](../scripts/data/download_iam.py) utilizing the HuggingFace `datasets` library to stream the academic benchmark **IAM Line Database** (`Teklia/IAM-line`).
   * Downloaded **6,482 authentic human handwritten text line strips** into `data/images/`.
   * Generated train/validation splits:
     * `data/train.csv`: **5,833 samples** (90%)
@@ -103,8 +103,8 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
   1. **Width Bottleneck:** Standard single-word CRNNs use a width of `280px`. IAM lines contain 40–60 characters. Compressing a 50-character sentence into 280 pixels forces each character into fewer than 5 pixels, causing temporal receptive fields to overlap heavily and causing CTC collapse.
   2. **Character Omissions:** IAM ground-truth labels contain punctuation such as commas, quotes, hyphens, and semicolons, as well as symbols `#`, `*`, and `&`.
 * **Changes Made:**
-  1. **Vocabulary Audit:** Created an automated audit script analyzing all unique characters across all 6,482 labels. Added `#`, `*`, `&`, `"`, `'`, `(`, `)`, `;`, `?`, `/`, `-`, `+`, `@` into `CHARS` in [`model.py`](file:///J:/HTR/model.py), bringing total classes to 81.
-  2. **Dataset Preprocessing in [`dataset.py`](file:///J:/HTR/dataset.py):**
+  1. **Vocabulary Audit:** Created an automated audit script analyzing all unique characters across all 6,482 labels. Added `#`, `*`, `&`, `"`, `'`, `(`, `)`, `;`, `?`, `/`, `-`, `+`, `@` into `CHARS` in [`model.py`](../src/contact_scanner_backend/model.py), bringing total classes to 81.
+  2. **Dataset Preprocessing in [`dataset.py`](../src/contact_scanner_backend/dataset.py):**
      * Scaled target image width from `280px` to **`800px`** (Height: `32px`).
      * Implemented aspect-ratio-preserving proportional scaling: height is scaled to 32px, width is proportionally resized up to 800px, and remainder is cleanly right-padded with pure white background (`255`).
      * Normalized pixels to `[-1.0, 1.0]`.
@@ -138,14 +138,14 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
   Epoch [10/20] - Train Loss: 0.4716 | Val Loss: 1.1962  --> Saved best checkpoint (OPTIMAL)
   Epoch [11-20] - Train Loss: 0.4022 -> 0.1861 | Val Loss: 1.2638 -> 1.5225 (Overfitting phase)
   ```
-  * **Outcome:** The optimal checkpoint **[`best_crnn.pth`](file:///J:/HTR/best_crnn.pth)** was preserved at **Epoch 10** with validation loss **`1.1962`**.
+  * **Outcome:** The optimal checkpoint `artifacts/checkpoints/best_crnn.pth` was preserved at **Epoch 10** with validation loss **`1.1962`**.
 
 ---
 
-### Phase 0.6: Validation Verification (`evaluate_val.py`)
+### Phase 0.6: Validation Verification (`scripts/evaluation/evaluate_validation.py`)
 * **Objective:** Validate real-world transcription capabilities on unseen validation lines.
 * **Implementation Details:**
-  * Created [`evaluate_val.py`](file:///J:/HTR/evaluate_val.py) implementing a CTC greedy decoder.
+  * Created [`evaluate_validation.py`](../scripts/evaluation/evaluate_validation.py) implementing a CTC greedy decoder.
 * **Inference Demonstration:**
   * **Ground Truth:** `of the river . She helped me clean up my`
     * **Prediction:** `of the river . She halped me dean up mey`
@@ -174,7 +174,7 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
          dynamo=False
      )
      ```
-  * Produced [`crnn_handwritten.onnx`](file:///J:/HTR/crnn_handwritten.onnx) (53.32 MB).
+  * Produced `artifacts/onnx/crnn_handwritten.onnx` (53.32 MB).
 
 ---
 
@@ -207,7 +207,7 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
        converter.target_spec.supported_types = [tf.float16]
        ```
 * **Outcome:**
-  * Generated **[`crnn_handwritten.tflite`](file:///J:/HTR/crnn_handwritten.tflite)** (**25.26 MB**).
+  * Generated **`artifacts/tflite/crnn_handwritten.tflite`** (**25.26 MB**).
   * Reduced model footprint by **52.6%** with zero architectural loss.
 
 ---
@@ -215,45 +215,33 @@ Index `0` is strictly reserved for the CTC Blank (`-`). The complete alphabet co
 ### Phase 0.9: Flutter Integration Artifact Generation (`save_charset.py`)
 * **Objective:** Provide the mobile client with the exact decoding alphabet.
 * **Implementation:**
-  * Created [`save_charset.py`](file:///J:/HTR/save_charset.py).
-  * Generated **[`chars.txt`](file:///J:/HTR/chars.txt)** containing all 81 characters mapped 1-to-1 with model output indices.
+  * Created [`save_charset.py`](../scripts/export/save_charset.py).
+  * Generated **[`assets/chars.txt`](../assets/chars.txt)** containing all 81 characters mapped 1-to-1 with model output indices.
 
 ---
 
 ## File Inventory & Workspace Structure
 
-```
-J:\HTR\
-├── data/
-│   ├── images/               # 6,482 IAM line crop images (iam_00000.png - iam_06481.png)
-│   ├── train.csv             # 5,833 training samples
-│   └── val.csv               # 649 validation samples
-│
-├── model.py                  # ResNet18-CRNN architecture definition + CHARS mapping
-├── dataset.py                # PyTorch Dataset & collator (aspect ratio scale, pad to 800px)
-├── download_iam.py           # HF streaming pipeline for IAM lines
-├── train.py                  # CTC loss training script with AdamW & LR plateau scheduler
-├── test_forward.py           # Initial smoke test for forward tensor passes
-├── evaluate_val.py           # Validation inference script with CTC greedy decoding
-├── export_onnx.py            # PyTorch to ONNX exporter (dynamic axes)
-├── export_onnx_static.py     # PyTorch to ONNX exporter (static 800px width)
-├── convert_tflite.py         # SavedModel generator and Float16 TFLite quantization engine
-├── save_charset.py           # Character set export script
-│
-├── best_crnn.pth             # PyTorch trained weights checkpoint (53.4 MB, Val Loss: 1.1962)
-├── crnn_handwritten.onnx     # Exported ONNX model (53.3 MB)
-├── crnn_handwritten.tflite   # Float16 Quantized Mobile Model (25.26 MB)  <-- Ready for Flutter
-├── chars.txt                 # Character decoding map (81 chars)         <-- Ready for Flutter
-│
-├── venv/                     # Primary PyTorch 2.14 (cu132) runtime
-└── venv_tf/                  # Conversion bridge venv (Python 3.11 + TF 2.15 + ONNX-TF)
+```text
+src/contact_scanner_backend/  # Reusable model, dataset, and project paths
+scripts/data/                 # Dataset acquisition and preparation
+scripts/training/             # Training and fine-tuning
+scripts/evaluation/           # PyTorch and TFLite inference
+scripts/export/               # ONNX, TFLite, and charset generation
+scripts/dev/                  # Experimental conversion work
+tests/                        # Model regression and smoke tests
+assets/chars.txt              # Versioned character decoding map
+docs/                         # Architecture and project history
+requirements/                 # Core and conversion dependency sets
+data/                         # Generated datasets (gitignored)
+artifacts/                    # Generated checkpoints/models (gitignored)
 ```
 
 ---
 
 ## Next Steps (Phase 1: Flutter Client Integration)
 1. **Asset Embedding:**
-   * Copy `crnn_handwritten.tflite` and `chars.txt` into the Flutter project's `assets/models/` folder.
+   * Copy `artifacts/tflite/crnn_handwritten.tflite` and `assets/chars.txt` into the Flutter project's `assets/models/` folder.
    * Register assets in `pubspec.yaml`.
 2. **Inference Pipeline in Flutter:**
    * Load model with `tflite_flutter`.
