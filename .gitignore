@@ -85,3 +85,10 @@ data/
 *.onnx
 *.tflite
 saved_model_dir/
+
+# Generated model outputs
+artifacts/
+
+# The Python template's generic lib/ rule must not hide Flutter sources.
+!frontend/lib/
+!frontend/lib/**

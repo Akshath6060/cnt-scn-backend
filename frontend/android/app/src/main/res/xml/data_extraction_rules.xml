@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Excludes the local contact registry and scan working files from cloud backup
+  and device-to-device transfer (§2, §28). Contact data must not leave the
+  device by any route, including a platform backup.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="contact_scanner.db" />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="scan_working" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="contact_scanner.db" />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="scan_working" />
+    </device-transfer>
+</data-extraction-rules>
