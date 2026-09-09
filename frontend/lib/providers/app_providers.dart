@@ -26,15 +26,16 @@ import '../services/temp_file_service.dart';
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
-final settingsServiceProvider =
-    Provider<SettingsService>((ref) => SettingsService());
+final settingsServiceProvider = Provider<SettingsService>(
+  (ref) => SettingsService(),
+);
 
 /// Current user settings. Everything downstream reads this rather than
 /// touching `SharedPreferences` directly.
 final settingsProvider =
     StateNotifierProvider<SettingsNotifier, AsyncValue<AppSettings>>(
-  (ref) => SettingsNotifier(ref.watch(settingsServiceProvider)),
-);
+      (ref) => SettingsNotifier(ref.watch(settingsServiceProvider)),
+    );
 
 class SettingsNotifier extends StateNotifier<AsyncValue<AppSettings>> {
   SettingsNotifier(this._service) : super(const AsyncValue.loading()) {
@@ -61,8 +62,9 @@ class SettingsNotifier extends StateNotifier<AsyncValue<AppSettings>> {
 ///
 /// Swap this single provider to move the whole app onto OpenCV — see
 /// `docs/OPENCV_PIPELINE.md`.
-final imageProcessorProvider =
-    Provider<DocumentImageProcessor>((ref) => const DartImageProcessor());
+final imageProcessorProvider = Provider<DocumentImageProcessor>(
+  (ref) => const DartImageProcessor(),
+);
 
 final documentScannerProvider = Provider<DocumentScannerService>(
   (ref) => DocumentScannerService(processor: ref.watch(imageProcessorProvider)),
@@ -73,11 +75,13 @@ final preprocessingServiceProvider = Provider<ImagePreprocessingService>(
       ImagePreprocessingService(processor: ref.watch(imageProcessorProvider)),
 );
 
-final tempFileServiceProvider =
-    Provider<TempFileService>((ref) => TempFileService());
+final tempFileServiceProvider = Provider<TempFileService>(
+  (ref) => TempFileService(),
+);
 
-final permissionServiceProvider =
-    Provider<PermissionService>((ref) => const PermissionService());
+final permissionServiceProvider = Provider<PermissionService>(
+  (ref) => const PermissionService(),
+);
 
 // ── Machine learning ───────────────────────────────────────────────────────
 
@@ -98,16 +102,36 @@ final textDetectorProvider = Provider<TextDetector>(
 /// the trained model is genuinely absent, the build is not a release build,
 /// and the developer has explicitly opted in through Settings. Otherwise a
 /// missing model surfaces as a clear, local error.
-final handwritingRecognizerProvider =
-    FutureProvider<HandwritingRecognizer>((ref) async {
-  final settings = ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+final handwritingRecognizerProvider = FutureProvider<HandwritingRecognizer>((
+  ref,
+) async {
+  final settings =
+      ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
   final manager = ref.watch(modelManagerProvider);
 
+  // The original ONNX graph is the primary production model. The supplied
+  // Float16 TFLite conversion has an invalid LSTM WHILE/BATCH_MATMUL shape on
+  // current LiteRT, so it remains only a fallback for a future corrected file.
+  final onnx = OnnxHandwritingRecognizer();
+  try {
+    await onnx.initialize();
+    if (onnx.isReady) {
+      ref.onDispose(onnx.dispose);
+      return onnx;
+    }
+  } on MlException {
+    await onnx.dispose();
+  }
+
   final tflite = TFLiteHandwritingRecognizer(modelManager: manager);
-  await tflite.initialize();
-  if (tflite.isReady) {
-    ref.onDispose(tflite.dispose);
-    return tflite;
+  try {
+    await tflite.initialize();
+    if (tflite.isReady) {
+      ref.onDispose(tflite.dispose);
+      return tflite;
+    }
+  } on MlException {
+    await tflite.dispose();
   }
 
   if (!kReleaseMode && settings.allowMockRecognizer) {
@@ -117,7 +141,8 @@ final handwritingRecognizerProvider =
 });
 
 final phoneNumberParserProvider = Provider<PhoneNumberParser>((ref) {
-  final settings = ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+  final settings =
+      ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
   return PhoneNumberParser(defaultCountryCode: settings.defaultCountryCode);
 });
 
@@ -156,8 +181,9 @@ final temporaryContactRepositoryProvider = Provider<TemporaryContactRepository>(
   (ref) => TemporaryContactRepository(ref.watch(appDatabaseProvider)),
 );
 
-final contactsGatewayProvider =
-    Provider<NativeContactsGateway>((ref) => const FlutterContactsGateway());
+final contactsGatewayProvider = Provider<NativeContactsGateway>(
+  (ref) => const FlutterContactsGateway(),
+);
 
 final contactServiceProvider = Provider<ContactService>(
   (ref) => ContactService(
@@ -179,5 +205,6 @@ final expiryServiceProvider = Provider<ExpiryService>(
   ),
 );
 
-final backgroundCleanupProvider =
-    Provider<BackgroundCleanupService>((ref) => BackgroundCleanupService());
+final backgroundCleanupProvider = Provider<BackgroundCleanupService>(
+  (ref) => BackgroundCleanupService(),
+);

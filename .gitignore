@@ -84,6 +84,9 @@ data/
 *.pt
 *.onnx
 *.tflite
+# The production mobile recogniser is intentionally bundled with the app.
+!frontend/assets/models/handwriting_recognizer.tflite
+!frontend/assets/models/handwriting_recognizer.onnx
 saved_model_dir/
 
 # Generated model outputs

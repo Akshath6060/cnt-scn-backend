@@ -25,6 +25,7 @@ dependencies:
 
   # On-device inference
   tflite_flutter: ^0.12.1
+  flutter_onnxruntime: ^1.8.4
 
   # Local persistence
   sqflite: ^2.4.3

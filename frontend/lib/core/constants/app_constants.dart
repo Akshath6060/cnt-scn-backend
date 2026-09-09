@@ -13,7 +13,10 @@ class AppConstants {
   static const String textDetectorAsset = 'assets/models/text_detector.tflite';
   static const String recognizerAsset =
       'assets/models/handwriting_recognizer.tflite';
-  static const String combinedAsset = 'assets/models/contact_recognition.tflite';
+  static const String onnxRecognizerAsset =
+      'assets/models/handwriting_recognizer.onnx';
+  static const String combinedAsset =
+      'assets/models/contact_recognition.tflite';
   static const String charsetAsset = 'assets/models/chars.txt';
 
   // ── Recognizer input contract (must match the training pipeline) ─────────
@@ -51,7 +54,8 @@ class AppConstants {
 
   // ── Background cleanup (§15) ─────────────────────────────────────────────
   static const String cleanupTaskName = 'contact_scanner.expiry_cleanup';
-  static const String cleanupTaskUniqueName = 'contact_scanner.expiry_cleanup.periodic';
+  static const String cleanupTaskUniqueName =
+      'contact_scanner.expiry_cleanup.periodic';
   static const Duration cleanupInterval = Duration(minutes: 15);
 
   /// Max consecutive failures before a record stops being retried

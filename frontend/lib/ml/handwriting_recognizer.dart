@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image/image.dart' as img;
 
 import '../core/constants/app_constants.dart';
@@ -51,8 +52,18 @@ class MockHandwritingRecognizer implements HandwritingRecognizer {
   final int seed;
 
   static const _names = [
-    'Anu', 'Rahul', 'Neha', 'Kiran', 'Sanjay', 'Priya',
-    'Vikram', 'Meera', 'Arjun', 'Divya', 'Rohit', 'Sneha',
+    'Anu',
+    'Rahul',
+    'Neha',
+    'Kiran',
+    'Sanjay',
+    'Priya',
+    'Vikram',
+    'Meera',
+    'Arjun',
+    'Divya',
+    'Rohit',
+    'Sneha',
   ];
 
   @override
@@ -124,8 +135,8 @@ class TFLiteHandwritingRecognizer implements HandwritingRecognizer {
     required TfliteModelManager modelManager,
     this.assetPath = AppConstants.recognizerAsset,
     Charset? charset,
-  })  : _models = modelManager,
-        _charset = charset ?? Charset.fallback;
+  }) : _models = modelManager,
+       _charset = charset ?? Charset.fallback;
 
   final TfliteModelManager _models;
   final String assetPath;
@@ -281,9 +292,9 @@ class TFLiteHandwritingRecognizer implements HandwritingRecognizer {
       for (var x = 0; x < targetW; x++) {
         final p = resized.getPixel(x, y);
         final idx = y * w + x;
-        tensor[idx] = p.r / 127.5 - 1.0;                  // R plane
-        tensor[planeSize + idx] = p.g / 127.5 - 1.0;      // G plane
-        tensor[planeSize * 2 + idx] = p.b / 127.5 - 1.0;  // B plane
+        tensor[idx] = p.r / 127.5 - 1.0; // R plane
+        tensor[planeSize + idx] = p.g / 127.5 - 1.0; // G plane
+        tensor[planeSize * 2 + idx] = p.b / 127.5 - 1.0; // B plane
       }
     }
     return tensor;
@@ -311,7 +322,7 @@ class TFLiteHandwritingRecognizer implements HandwritingRecognizer {
         AppConstants.recognizerInputChannels,
         AppConstants.recognizerInputHeight,
         AppConstants.recognizerInputWidth,
-      )
+      ),
     ];
 
     try {
@@ -332,25 +343,216 @@ class TFLiteHandwritingRecognizer implements HandwritingRecognizer {
     int channels,
     int height,
     int width,
-  ) =>
-      List.generate(
-        channels,
-        (c) => List.generate(
-          height,
-          (y) => List.generate(
-            width,
-            (x) => flat[c * height * width + y * width + x],
-            growable: false,
-          ),
-          growable: false,
-        ),
+  ) => List.generate(
+    channels,
+    (c) => List.generate(
+      height,
+      (y) => List.generate(
+        width,
+        (x) => flat[c * height * width + y * width + x],
         growable: false,
-      );
+      ),
+      growable: false,
+    ),
+    growable: false,
+  );
 
   @override
   Future<void> dispose() async {
     _models.release(assetPath);
     _model = null;
+    _initialized = false;
+  }
+}
+
+/// Production fallback for ONNX models whose converted TFLite graph cannot be
+/// prepared by the device's LiteRT version.
+class OnnxHandwritingRecognizer implements HandwritingRecognizer {
+  OnnxHandwritingRecognizer({
+    this.assetPath = AppConstants.onnxRecognizerAsset,
+    Charset? charset,
+    OnnxRuntime? runtime,
+  }) : _charset = charset ?? Charset.fallback,
+       _runtime = runtime ?? OnnxRuntime();
+
+  final String assetPath;
+  final OnnxRuntime _runtime;
+
+  Charset _charset;
+  CtcDecoder? _decoder;
+  OrtSession? _session;
+  bool _initialized = false;
+
+  static const _tag = 'OnnxRecognizer';
+
+  @override
+  String get engineName => 'ResNet18-CRNN (ONNX Runtime)';
+
+  @override
+  bool get isMock => false;
+
+  bool get isReady => _session != null;
+
+  @override
+  Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
+    _charset = await Charset.load();
+    _decoder = CtcDecoder(_charset);
+
+    try {
+      final session = await _runtime.createSessionFromAsset(
+        assetPath,
+        options: OrtSessionOptions(intraOpNumThreads: 2),
+      );
+      if (session.inputNames.length != 1 || session.outputNames.length != 1) {
+        await session.close();
+        throw MlException.incompatible;
+      }
+      final inputInfo = await session.getInputInfo();
+      final outputInfo = await session.getOutputInfo();
+      final inputShape = inputInfo.length == 1
+          ? List<int>.from(inputInfo.single['shape'] as List)
+          : const <int>[];
+      final outputShape = outputInfo.length == 1
+          ? List<int>.from(outputInfo.single['shape'] as List)
+          : const <int>[];
+      const expectedInput = [1, 3, 32, 800];
+      final inputMatches =
+          inputShape.length == expectedInput.length &&
+          List.generate(
+            expectedInput.length,
+            (i) => inputShape[i] < 0 || inputShape[i] == expectedInput[i],
+          ).every((matches) => matches);
+      final outputMatches =
+          outputShape.length == 3 &&
+          (outputShape.first < 0 || outputShape.first == 1) &&
+          (outputShape.last < 0 || outputShape.last == _charset.length);
+      if (!inputMatches || !outputMatches) {
+        await session.close();
+        throw MlException.incompatible;
+      }
+      _session = session;
+      AppLog.info(
+        _tag,
+        'loaded $assetPath  in=${session.inputNames}$inputShape '
+        'out=${session.outputNames}$outputShape',
+      );
+    } on MlException {
+      rethrow;
+    } catch (e, s) {
+      AppLog.error(_tag, 'failed to load $assetPath', e, s);
+      throw MlException(
+        AppErrorCode.modelLoadFailed,
+        MlException.modelLoadFailed.userMessage,
+        cause: e,
+        stackTrace: s,
+      );
+    }
+  }
+
+  @override
+  Future<List<RecognizedText>> recognize(
+    img.Image document,
+    List<TextRegion> regions, {
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    await initialize();
+    final session = _session;
+    final decoder = _decoder;
+    if (session == null || decoder == null) throw MlException.modelMissing;
+
+    final results = <RecognizedText>[];
+    for (var i = 0; i < regions.length; i++) {
+      final region = regions[i];
+      try {
+        final crop = _cropRegion(document, region);
+        final input = TFLiteHandwritingRecognizer.buildInputTensor(crop);
+        final logits = await _runInference(session, input);
+        final decoded = decoder.decode(logits);
+        if (decoded.text.trim().isNotEmpty) {
+          results.add(
+            RecognizedText(
+              text: decoded.text,
+              confidence: decoded.confidence,
+              boundingBox: region.boundingBox,
+              detectionConfidence: region.confidence,
+            ),
+          );
+        }
+      } catch (e, s) {
+        AppLog.error(_tag, 'region $i failed', e, s);
+      }
+      onProgress?.call(i + 1, regions.length);
+    }
+    return results;
+  }
+
+  img.Image _cropRegion(img.Image document, TextRegion region) {
+    final box = region.boundingBox;
+    final x = box.left.round().clamp(0, document.width - 1);
+    final y = box.top.round().clamp(0, document.height - 1);
+    final w = box.width.round().clamp(1, document.width - x);
+    final h = box.height.round().clamp(1, document.height - y);
+    return img.copyCrop(document, x: x, y: y, width: w, height: h);
+  }
+
+  Future<List<List<double>>> _runInference(
+    OrtSession session,
+    Float32List input,
+  ) async {
+    OrtValue? inputValue;
+    Map<String, OrtValue>? outputs;
+    try {
+      inputValue = await OrtValue.fromList(input, const [1, 3, 32, 800]);
+      outputs = await session.run({session.inputNames.first: inputValue});
+      final output = outputs[session.outputNames.first];
+      if (output == null ||
+          output.shape.length != 3 ||
+          output.shape.first != 1) {
+        throw MlException.incompatible;
+      }
+
+      final timeSteps = output.shape[1];
+      final classes = output.shape[2];
+      _charset.assertMatchesClassCount(classes);
+      final flat = await output.asFlattenedList();
+      if (flat.length != timeSteps * classes) {
+        throw MlException.incompatible;
+      }
+      return List.generate(
+        timeSteps,
+        (t) => List.generate(
+          classes,
+          (c) => (flat[t * classes + c] as num).toDouble(),
+          growable: false,
+        ),
+        growable: false,
+      );
+    } on MlException {
+      rethrow;
+    } catch (e, s) {
+      throw MlException(
+        AppErrorCode.inferenceFailed,
+        MlException.inferenceFailed.userMessage,
+        cause: e,
+        stackTrace: s,
+      );
+    } finally {
+      await inputValue?.dispose();
+      if (outputs != null) {
+        for (final output in outputs.values) {
+          await output.dispose();
+        }
+      }
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _session?.close();
+    _session = null;
     _initialized = false;
   }
 }

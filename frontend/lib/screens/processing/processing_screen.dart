@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/app_exceptions.dart';
+import '../../providers/app_providers.dart';
 import '../../providers/review_provider.dart';
 import '../../providers/scan_session_provider.dart';
 import '../../widgets/app_error_view.dart';
@@ -35,6 +37,18 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
     }
   }
 
+  Future<void> _useDemoRecognizer() async {
+    final settings = ref.read(settingsProvider.notifier);
+    await settings.update(settings.current.copyWith(allowMockRecognizer: true));
+    if (!mounted) return;
+
+    // The recogniser and pipeline depend on Settings. Invalidating explicitly
+    // ensures this retry cannot reuse the earlier model-missing failure.
+    ref.invalidate(handwritingRecognizerProvider);
+    ref.invalidate(scanPipelineProvider);
+    await _start();
+  }
+
   void _goToReview() {
     if (_navigated) return;
     _navigated = true;
@@ -51,6 +65,8 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   Widget build(BuildContext context) {
     final session = ref.watch(scanSessionProvider);
     final error = session.error;
+    final canUseDemo =
+        !kReleaseMode && error?.code == AppErrorCode.modelMissing;
 
     return PopScope(
       // Leaving mid-run should stop the work, not orphan it.
@@ -67,7 +83,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
           child: error != null
               ? AppErrorView(
                   error: error,
-                  onRetry: error.isRecoverable ? _start : null,
+                  onRetry: canUseDemo
+                      ? _useDemoRecognizer
+                      : (error.isRecoverable ? _start : null),
+                  primaryLabel: canUseDemo ? 'Use demo mode' : null,
                   onSecondary: () => Navigator.of(context).pop(),
                   secondaryLabel: 'Retake photo',
                 )

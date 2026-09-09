@@ -10,6 +10,7 @@ class AppErrorView extends StatelessWidget {
     super.key,
     required this.error,
     this.onRetry,
+    this.primaryLabel,
     this.onSecondary,
     this.secondaryLabel,
     this.compact = false,
@@ -17,26 +18,23 @@ class AppErrorView extends StatelessWidget {
 
   final AppException error;
   final VoidCallback? onRetry;
+  final String? primaryLabel;
   final VoidCallback? onSecondary;
   final String? secondaryLabel;
   final bool compact;
 
   IconData get _icon => switch (error.code) {
-        AppErrorCode.cameraPermissionDenied ||
-        AppErrorCode.contactsPermissionDenied =>
-          Icons.lock_outline,
-        AppErrorCode.documentNotDetected ||
-        AppErrorCode.poorImageQuality =>
-          Icons.crop_free,
-        AppErrorCode.modelMissing ||
-        AppErrorCode.modelLoadFailed ||
-        AppErrorCode.modelIncompatible =>
-          Icons.memory_outlined,
-        AppErrorCode.noTextDetected ||
-        AppErrorCode.noPhoneNumbersDetected =>
-          Icons.text_fields,
-        _ => Icons.error_outline,
-      };
+    AppErrorCode.cameraPermissionDenied ||
+    AppErrorCode.contactsPermissionDenied => Icons.lock_outline,
+    AppErrorCode.documentNotDetected ||
+    AppErrorCode.poorImageQuality => Icons.crop_free,
+    AppErrorCode.modelMissing ||
+    AppErrorCode.modelLoadFailed ||
+    AppErrorCode.modelIncompatible => Icons.memory_outlined,
+    AppErrorCode.noTextDetected ||
+    AppErrorCode.noPhoneNumbersDetected => Icons.text_fields,
+    _ => Icons.error_outline,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +85,7 @@ class AppErrorView extends StatelessWidget {
                     FilledButton.icon(
                       onPressed: onRetry,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Try again'),
+                      label: Text(primaryLabel ?? 'Try again'),
                     ),
                   if (onSecondary != null)
                     OutlinedButton(

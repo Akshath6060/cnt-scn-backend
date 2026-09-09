@@ -31,13 +31,12 @@ class TemporaryContactsState {
     bool? isLoading,
     AppException? error,
     bool clearError = false,
-  }) =>
-      TemporaryContactsState(
-        active: active ?? this.active,
-        finished: finished ?? this.finished,
-        isLoading: isLoading ?? this.isLoading,
-        error: clearError ? null : (error ?? this.error),
-      );
+  }) => TemporaryContactsState(
+    active: active ?? this.active,
+    finished: finished ?? this.finished,
+    isLoading: isLoading ?? this.isLoading,
+    error: clearError ? null : (error ?? this.error),
+  );
 }
 
 /// Owns the temporary-contact list and the user actions on it (§17).
@@ -48,9 +47,9 @@ class TemporaryContactsNotifier extends StateNotifier<TemporaryContactsState> {
   TemporaryContactsNotifier({
     required TemporaryContactRepository repository,
     required ExpiryService expiry,
-  })  : _repository = repository,
-        _expiry = expiry,
-        super(const TemporaryContactsState()) {
+  }) : _repository = repository,
+       _expiry = expiry,
+       super(const TemporaryContactsState()) {
     refresh();
   }
 
@@ -63,17 +62,22 @@ class TemporaryContactsNotifier extends StateNotifier<TemporaryContactsState> {
     try {
       if (runCleanup) {
         await _expiry.runCleanup();
+        if (!mounted) return;
       }
       final active = await _repository.active();
+      if (!mounted) return;
       final finished = await _repository.finished();
+      if (!mounted) return;
       state = TemporaryContactsState(
         active: active,
         finished: finished,
         isLoading: false,
       );
     } on AppException catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoading: false, error: e);
     } catch (e, s) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: DatabaseException(
@@ -108,7 +112,10 @@ class TemporaryContactsNotifier extends StateNotifier<TemporaryContactsState> {
   }
 
   /// Sets an absolute expiry (§17).
-  Future<void> changeExpiry(TemporaryContact contact, DateTime? expiresAt) async {
+  Future<void> changeExpiry(
+    TemporaryContact contact,
+    DateTime? expiresAt,
+  ) async {
     await _expiry.changeExpiry(contact, expiresAt);
     await refresh(runCleanup: false);
   }
@@ -122,10 +129,10 @@ class TemporaryContactsNotifier extends StateNotifier<TemporaryContactsState> {
   }
 }
 
-final temporaryContactsProvider = StateNotifierProvider<
-    TemporaryContactsNotifier, TemporaryContactsState>(
-  (ref) => TemporaryContactsNotifier(
-    repository: ref.watch(temporaryContactRepositoryProvider),
-    expiry: ref.watch(expiryServiceProvider),
-  ),
-);
+final temporaryContactsProvider =
+    StateNotifierProvider<TemporaryContactsNotifier, TemporaryContactsState>(
+      (ref) => TemporaryContactsNotifier(
+        repository: ref.watch(temporaryContactRepositoryProvider),
+        expiry: ref.watch(expiryServiceProvider),
+      ),
+    );

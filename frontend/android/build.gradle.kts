@@ -43,7 +43,7 @@ subprojects {
                 // Keep its Kotlin task on the same target; forcing it to 17
                 // makes Gradle 9 reject the plugin before compilation starts.
                 when (project.name) {
-                    "tflite_flutter" ->
+                    "tflite_flutter", "flutter_onnxruntime" ->
                         org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
                     "workmanager_android" ->
                         org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8

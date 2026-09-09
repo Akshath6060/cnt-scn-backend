@@ -5,6 +5,11 @@
 -keep class org.tensorflow.lite.gpu.** { *; }
 -dontwarn org.tensorflow.lite.**
 
+# ONNX Runtime -------------------------------------------------------------
+# The fallback recogniser calls these Java bindings through the plugin.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+
 # WorkManager --------------------------------------------------------------
 # The background cleanup worker is instantiated by name by the OS.
 -keep class androidx.work.** { *; }
