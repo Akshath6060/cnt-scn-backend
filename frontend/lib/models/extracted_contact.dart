@@ -69,8 +69,9 @@ class ExtractedContact {
 
   /// Value written to the phonebook — prefers the normalised form so the
   /// dialer and duplicate checks behave predictably.
-  String get phoneForSaving =>
-      wasEditedByUser ? phone.trim() : (parsedPhone?.normalizedValue ?? phone.trim());
+  String get phoneForSaving => parsedPhone?.isValid == true
+      ? parsedPhone!.normalizedValue
+      : phone.trim();
 
   ExtractedContact copyWith({
     String? name,
@@ -81,26 +82,25 @@ class ExtractedContact {
     bool? isSelected,
     ExpirySelection? expiry,
     bool? wasEditedByUser,
-  }) =>
-      ExtractedContact(
-        id: id,
-        name: name ?? this.name,
-        phone: phone ?? this.phone,
-        confidence: confidence ?? this.confidence,
-        parsedPhone: parsedPhone ?? this.parsedPhone,
-        nameCandidate: nameCandidate,
-        phoneCandidate: phoneCandidate,
-        issues: issues ?? this.issues,
-        isSelected: isSelected ?? this.isSelected,
-        expiry: expiry ?? this.expiry,
-        wasEditedByUser: wasEditedByUser ?? this.wasEditedByUser,
-      );
+  }) => ExtractedContact(
+    id: id,
+    name: name ?? this.name,
+    phone: phone ?? this.phone,
+    confidence: confidence ?? this.confidence,
+    parsedPhone: parsedPhone ?? this.parsedPhone,
+    nameCandidate: nameCandidate,
+    phoneCandidate: phoneCandidate,
+    issues: issues ?? this.issues,
+    isSelected: isSelected ?? this.isSelected,
+    expiry: expiry ?? this.expiry,
+    wasEditedByUser: wasEditedByUser ?? this.wasEditedByUser,
+  );
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'phone': phone,
-        'confidence': confidence,
-      };
+    'name': name,
+    'phone': phone,
+    'confidence': confidence,
+  };
 
   @override
   String toString() =>

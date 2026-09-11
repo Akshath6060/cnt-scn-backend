@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as fc;
 
 /// A contact as this app cares about it, independent of the plugin's types.
@@ -36,11 +38,7 @@ abstract class NativeContactsGateway {
   Future<NativeContact> insert({required String name, required String phone});
 
   /// Replaces the phone numbers on an existing contact.
-  Future<void> update({
-    required String id,
-    String? name,
-    String? phone,
-  });
+  Future<void> update({required String id, String? name, String? phone});
 
   /// Deletes strictly by OS id.
   Future<void> deleteById(String id);
@@ -49,6 +47,10 @@ abstract class NativeContactsGateway {
 /// `flutter_contacts`-backed implementation.
 class FlutterContactsGateway implements NativeContactsGateway {
   const FlutterContactsGateway();
+
+  static const _androidChannel = MethodChannel(
+    'com.example.contact_scanner/contacts',
+  );
 
   @override
   Future<bool> requestPermission({bool readonly = false}) =>
@@ -88,6 +90,20 @@ class FlutterContactsGateway implements NativeContactsGateway {
     required String name,
     required String phone,
   }) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final id = await _androidChannel.invokeMethod<String>('insertContact', {
+        'name': name,
+        'phone': phone,
+      });
+      if (id == null || id.isEmpty) {
+        throw PlatformException(
+          code: 'INSERT_FAILED',
+          message: 'The contacts provider returned no contact ID.',
+        );
+      }
+      return NativeContact(id: id, displayName: name, phones: [phone]);
+    }
+
     final contact = fc.Contact()
       ..name.first = name
       ..phones = [fc.Phone(phone)];
@@ -96,12 +112,11 @@ class FlutterContactsGateway implements NativeContactsGateway {
   }
 
   @override
-  Future<void> update({
-    required String id,
-    String? name,
-    String? phone,
-  }) async {
-    final existing = await fc.FlutterContacts.getContact(id, withProperties: true);
+  Future<void> update({required String id, String? name, String? phone}) async {
+    final existing = await fc.FlutterContacts.getContact(
+      id,
+      withProperties: true,
+    );
     if (existing == null) return;
     if (name != null && name.isNotEmpty) existing.name.first = name;
     if (phone != null && phone.isNotEmpty) {
@@ -114,14 +129,17 @@ class FlutterContactsGateway implements NativeContactsGateway {
   Future<void> deleteById(String id) async {
     // Resolve first so we delete exactly the record that id names, never a
     // name match (§13).
-    final existing = await fc.FlutterContacts.getContact(id, withProperties: false);
+    final existing = await fc.FlutterContacts.getContact(
+      id,
+      withProperties: false,
+    );
     if (existing == null) return;
     await fc.FlutterContacts.deleteContact(existing);
   }
 
   NativeContact _map(fc.Contact contact) => NativeContact(
-        id: contact.id,
-        displayName: contact.displayName,
-        phones: contact.phones.map((p) => p.number).toList(growable: false),
-      );
+    id: contact.id,
+    displayName: contact.displayName,
+    phones: contact.phones.map((p) => p.number).toList(growable: false),
+  );
 }

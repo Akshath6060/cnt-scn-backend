@@ -26,22 +26,21 @@ class ContactEditScreen extends StatefulWidget {
   static Future<ExtractedContact?> open(
     BuildContext context,
     ExtractedContact contact,
-  ) =>
-      Navigator.of(context).push<ExtractedContact>(
-        MaterialPageRoute(
-          builder: (_) => ContactEditScreen(contact: contact),
-        ),
-      );
+  ) => Navigator.of(context).push<ExtractedContact>(
+    MaterialPageRoute(builder: (_) => ContactEditScreen(contact: contact)),
+  );
 
   @override
   State<ContactEditScreen> createState() => _ContactEditScreenState();
 }
 
 class _ContactEditScreenState extends State<ContactEditScreen> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.contact.name);
-  late final TextEditingController _phone =
-      TextEditingController(text: widget.contact.phone);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.contact.name,
+  );
+  late final TextEditingController _phone = TextEditingController(
+    text: widget.contact.phone,
+  );
   late ExpirySelection _expiry = widget.contact.expiry;
 
   @override
@@ -55,23 +54,26 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final parsed = widget.phoneParser.parse(_phone.text);
+    final isNewContact =
+        widget.contact.name.trim().isEmpty &&
+        widget.contact.phone.trim().isEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit contact'),
+        title: Text(isNewContact ? 'Add contact manually' : 'Edit contact'),
         actions: [
           TextButton(
             onPressed: _name.text.trim().isEmpty || _phone.text.trim().isEmpty
                 ? null
                 : () => Navigator.of(context).pop(
-                      widget.contact.copyWith(
-                        name: _name.text.trim(),
-                        phone: _phone.text.trim(),
-                        parsedPhone: parsed,
-                        expiry: _expiry,
-                        wasEditedByUser: true,
-                      ),
+                    widget.contact.copyWith(
+                      name: _name.text.trim(),
+                      phone: _phone.text.trim(),
+                      parsedPhone: parsed,
+                      expiry: _expiry,
+                      wasEditedByUser: true,
                     ),
+                  ),
             child: const Text('Save'),
           ),
         ],
@@ -144,8 +146,10 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
-              final selection =
-                  await ExpiryPickerSheet.show(context, initial: _expiry);
+              final selection = await ExpiryPickerSheet.show(
+                context,
+                initial: _expiry,
+              );
               if (selection != null) setState(() => _expiry = selection);
             },
           ),

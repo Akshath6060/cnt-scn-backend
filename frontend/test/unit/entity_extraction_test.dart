@@ -21,6 +21,20 @@ void main() {
       expect(classifyOne('(98765) 43210'), EntityType.phone);
     });
 
+    test('keeps a number visible when OCR misreads unsupported characters', () {
+      final result = extractor.classify([
+        ocr('98u65x3210', x: 100, y: 100, width: 180, height: 30),
+      ]).single;
+
+      expect(result.entityType, EntityType.phone);
+      expect(result.phone?.isValid, isFalse);
+      expect(result.text, '98u65x3210');
+    });
+
+    test('does not mistake ordinary alphanumeric text for a phone', () {
+      expect(classifyOne('Room 12345'), isNot(EntityType.phone));
+    });
+
     test('names', () {
       expect(classifyOne('Anu'), EntityType.name);
       expect(classifyOne('Rahul Sharma'), EntityType.name);

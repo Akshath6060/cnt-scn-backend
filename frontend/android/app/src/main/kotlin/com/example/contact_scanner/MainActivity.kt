@@ -1,8 +1,8 @@
 package com.example.contact_scanner
 
-import android.accounts.AccountManager
 import android.content.ContentProviderOperation
 import android.content.Intent
+import android.os.Build
 import android.provider.ContactsContract
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,12 +19,10 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "insertContact" -> {
-                        val firstName = call.argument<String>("firstName") ?: ""
-                        val lastName = call.argument<String>("lastName") ?: ""
+                        val name = call.argument<String>("name") ?: ""
                         val phone = call.argument<String>("phone") ?: ""
                         try {
-                            insertContact(firstName, lastName, phone)
-                            result.success(true)
+                            result.success(insertContact(name, phone))
                         } catch (e: Exception) {
                             result.error("INSERT_FAILED", e.message, null)
                         }
@@ -82,13 +80,18 @@ class MainActivity : FlutterActivity() {
      * when default account is set to cloud" crash that occurs on devices
      * where the default contacts account is a cloud account.
      */
-    private fun insertContact(firstName: String, lastName: String, phone: String) {
-        // Find a Google account to insert under.
-        val accountManager = AccountManager.get(this)
-        val googleAccounts = accountManager.getAccountsByType("com.google")
-
-        val accountName: String? = googleAccounts.firstOrNull()?.name
-        val accountType: String? = if (accountName != null) "com.google" else null
+    private fun insertContact(name: String, phone: String): String {
+        // Android 13+ exposes the account selected by the user in their
+        // default Contacts app. Using it is essential on devices that reject
+        // local inserts while a cloud account is configured as the default.
+        val defaultAccount = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            @Suppress("DEPRECATION")
+            ContactsContract.Settings.getDefaultAccount(contentResolver)
+        } else {
+            null
+        }
+        val accountName = defaultAccount?.name
+        val accountType = defaultAccount?.type
 
         val ops = ArrayList<ContentProviderOperation>()
 
@@ -108,8 +111,7 @@ class MainActivity : FlutterActivity() {
                     ContactsContract.Data.MIMETYPE,
                     ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE
                 )
-                .withValue(ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, firstName)
-                .withValue(ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME, lastName)
+                .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name)
                 .build()
         )
 
@@ -131,6 +133,21 @@ class MainActivity : FlutterActivity() {
             )
         }
 
-        contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        val results = contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        val rawContactUri = results.firstOrNull()?.uri
+            ?: throw IllegalStateException("Contacts provider returned no contact URI")
+
+        contentResolver.query(
+            rawContactUri,
+            arrayOf(ContactsContract.RawContacts.CONTACT_ID),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(0).toString()
+            }
+        }
+        throw IllegalStateException("Contacts provider returned no aggregate contact ID")
     }
 }

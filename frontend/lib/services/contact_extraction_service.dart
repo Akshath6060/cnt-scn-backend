@@ -18,32 +18,88 @@ class ContactExtractionService {
   // ── Recognisers for the classes we deliberately ignore (§8.5) ────────────
 
   static final RegExp _email = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
-  static final RegExp _emailish = RegExp(r'@|\bgmail\b|\byahoo\b|\.com\b', caseSensitive: false);
+  static final RegExp _emailish = RegExp(
+    r'@|\bgmail\b|\byahoo\b|\.com\b',
+    caseSensitive: false,
+  );
 
   /// Leading list markers: "1.", "2)", "03 -", "#4".
-  static final RegExp _leadingSerial = RegExp(r'^\s*[#(\[]?\s*\d{1,3}\s*[.)\]:\-]\s+');
+  static final RegExp _leadingSerial = RegExp(
+    r'^\s*[#(\[]?\s*\d{1,3}\s*[.)\]:\-]\s+',
+  );
 
   /// A bare serial or page number occupying the whole fragment.
-  static final RegExp _bareSerial = RegExp(r'^\s*[#(\[]?\s*\d{1,3}\s*[.)\]]?\s*$');
+  static final RegExp _bareSerial = RegExp(
+    r'^\s*[#(\[]?\s*\d{1,3}\s*[.)\]]?\s*$',
+  );
 
-  static final RegExp _pageMarker =
-      RegExp(r'^\s*(page|pg|p)\.?\s*\d+\s*$', caseSensitive: false);
+  static final RegExp _pageMarker = RegExp(
+    r'^\s*(page|pg|p)\.?\s*\d+\s*$',
+    caseSensitive: false,
+  );
 
   static const List<String> _organizationKeywords = [
-    'college', 'university', 'institute', 'school', 'academy', 'dept',
-    'department', 'ltd', 'pvt', 'inc', 'corp', 'company', 'society',
-    'hospital', 'clinic', 'foundation', 'trust', 'branch', 'office',
+    'college',
+    'university',
+    'institute',
+    'school',
+    'academy',
+    'dept',
+    'department',
+    'ltd',
+    'pvt',
+    'inc',
+    'corp',
+    'company',
+    'society',
+    'hospital',
+    'clinic',
+    'foundation',
+    'trust',
+    'branch',
+    'office',
   ];
 
   static const List<String> _addressKeywords = [
-    'road', 'street', 'st.', 'lane', 'nagar', 'colony', 'sector', 'block',
-    'floor', 'flat', 'apt', 'apartment', 'house', 'plot', 'near', 'opp',
-    'district', 'pincode', 'pin', 'po box', 'p.o',
+    'road',
+    'street',
+    'st.',
+    'lane',
+    'nagar',
+    'colony',
+    'sector',
+    'block',
+    'floor',
+    'flat',
+    'apt',
+    'apartment',
+    'house',
+    'plot',
+    'near',
+    'opp',
+    'district',
+    'pincode',
+    'pin',
+    'po box',
+    'p.o',
   ];
 
   static const List<String> _headingKeywords = [
-    'name', 'phone', 'mobile', 'number', 'no.', 'contact', 'sr', 'sl',
-    'serial', 'list', 'details', 'email', 'address', 'signature', 'date',
+    'name',
+    'phone',
+    'mobile',
+    'number',
+    'no.',
+    'contact',
+    'sr',
+    'sl',
+    'serial',
+    'list',
+    'details',
+    'email',
+    'address',
+    'signature',
+    'date',
   ];
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -73,7 +129,8 @@ class ContactExtractionService {
     final cleaned = _stripListMarker(raw);
 
     // 1. Phone — highest precedence, because the parser's gate is strict.
-    if (phoneParser.looksLikePhone(cleaned)) {
+    if (phoneParser.looksLikePhone(cleaned) ||
+        _looksLikeDamagedPhone(cleaned)) {
       final parsed = phoneParser.parse(cleaned);
       // A phone-shaped field that fails validation is still a phone; the user
       // repairs it on review rather than losing it (§9).
@@ -130,6 +187,20 @@ class ContactExtractionService {
     );
   }
 
+  /// Keeps a digit-heavy OCR result visible when one or two digits were read
+  /// as unsupported letters. It is intentionally returned as an invalid,
+  /// low-confidence phone candidate so the user can repair it; no guessed
+  /// number is ever saved automatically.
+  bool _looksLikeDamagedPhone(String value) {
+    final compact = value.replaceAll(RegExp(r'[\s\-+()./\\]'), '');
+    if (compact.length < 7 || compact.length > 16) return false;
+
+    final digits = RegExp(r'\d').allMatches(compact).length;
+    final letters = RegExp(r'[A-Za-z]').allMatches(compact).length;
+    final unsupported = compact.length - digits - letters;
+    return unsupported == 0 && digits >= 5 && letters <= 3;
+  }
+
   /// Heuristic name score in [0, 1]; 0 means "not a name" (§8.4).
   ///
   /// Signals: alphabetic ratio, length, word count, capitalisation, and the
@@ -184,35 +255,39 @@ class ContactExtractionService {
 
     final rowTolerance = _medianHeight(input) * 0.6;
 
-    return input.map((candidate) {
-      if (candidate.isPhone) return candidate;
+    return input
+        .map((candidate) {
+          if (candidate.isPhone) return candidate;
 
-      final sharesRow = phones.any((p) =>
-          (p.box.centerY - candidate.box.centerY).abs() <= rowTolerance ||
-          p.box.verticalOverlapRatio(candidate.box) >= 0.5);
-
-      if (!sharesRow) return candidate;
-
-      // An unclassified fragment on a phone row is very likely the name.
-      if (candidate.entityType == EntityType.unknown) {
-        final score = scoreAsName(candidate.text, candidate.ocrConfidence);
-        if (score > 0) {
-          return candidate.copyWith(
-            entityType: EntityType.name,
-            classificationConfidence: (score + 0.08).clamp(0.0, 0.98),
+          final sharesRow = phones.any(
+            (p) =>
+                (p.box.centerY - candidate.box.centerY).abs() <= rowTolerance ||
+                p.box.verticalOverlapRatio(candidate.box) >= 0.5,
           );
-        }
-      }
 
-      if (candidate.isName) {
-        return candidate.copyWith(
-          classificationConfidence:
-              (candidate.classificationConfidence + 0.08).clamp(0.0, 0.98),
-        );
-      }
+          if (!sharesRow) return candidate;
 
-      return candidate;
-    }).toList(growable: false);
+          // An unclassified fragment on a phone row is very likely the name.
+          if (candidate.entityType == EntityType.unknown) {
+            final score = scoreAsName(candidate.text, candidate.ocrConfidence);
+            if (score > 0) {
+              return candidate.copyWith(
+                entityType: EntityType.name,
+                classificationConfidence: (score + 0.08).clamp(0.0, 0.98),
+              );
+            }
+          }
+
+          if (candidate.isName) {
+            return candidate.copyWith(
+              classificationConfidence:
+                  (candidate.classificationConfidence + 0.08).clamp(0.0, 0.98),
+            );
+          }
+
+          return candidate;
+        })
+        .toList(growable: false);
   }
 
   double _medianHeight(List<ContactCandidate> items) {
@@ -228,13 +303,12 @@ class ContactExtractionService {
     EntityType type,
     String cleaned,
     double confidence,
-  ) =>
-      ContactCandidate(
-        source: fragment,
-        entityType: type,
-        classificationConfidence: confidence,
-        normalizedText: cleaned,
-      );
+  ) => ContactCandidate(
+    source: fragment,
+    entityType: type,
+    classificationConfidence: confidence,
+    normalizedText: cleaned,
+  );
 
   String _stripListMarker(String value) =>
       value.replaceFirst(_leadingSerial, '').trim();
@@ -252,7 +326,9 @@ class ContactExtractionService {
 
   bool _containsKeyword(String lower, List<String> keywords) {
     for (final keyword in keywords) {
-      if (RegExp('(^|\\s)${RegExp.escape(keyword)}(\\s|\$|,)').hasMatch(lower)) {
+      if (RegExp(
+        '(^|\\s)${RegExp.escape(keyword)}(\\s|\$|,)',
+      ).hasMatch(lower)) {
         return true;
       }
     }
@@ -267,9 +343,11 @@ class ContactExtractionService {
     // Title-case an ALL-CAPS name so the phonebook entry looks natural.
     return collapsed
         .split(' ')
-        .map((w) => w.isEmpty
-            ? w
-            : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 }

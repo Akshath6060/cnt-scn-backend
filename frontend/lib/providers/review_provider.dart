@@ -68,11 +68,11 @@ class ReviewState {
       contacts.where((c) => c.isSelected).toList(growable: false);
 
   int get selectedCount => selected.length;
-  bool get allSelected => contacts.isNotEmpty && selectedCount == contacts.length;
+  bool get allSelected =>
+      contacts.isNotEmpty && selectedCount == contacts.length;
   bool get canSave => selected.any((c) => c.isComplete);
 
-  int get needsAttentionCount =>
-      contacts.where((c) => c.needsAttention).length;
+  int get needsAttentionCount => contacts.where((c) => c.needsAttention).length;
 
   bool get hasLeftovers =>
       unmatchedNames.isNotEmpty || unmatchedPhones.isNotEmpty;
@@ -86,17 +86,16 @@ class ReviewState {
     AppException? error,
     bool clearError = false,
     SaveSummary? summary,
-  }) =>
-      ReviewState(
-        contacts: contacts ?? this.contacts,
-        unmatchedNames: unmatchedNames ?? this.unmatchedNames,
-        unmatchedPhones: unmatchedPhones ?? this.unmatchedPhones,
-        duplicates: duplicates ?? this.duplicates,
-        usedMockRecognizer: usedMockRecognizer,
-        isSaving: isSaving ?? this.isSaving,
-        error: clearError ? null : (error ?? this.error),
-        summary: summary ?? this.summary,
-      );
+  }) => ReviewState(
+    contacts: contacts ?? this.contacts,
+    unmatchedNames: unmatchedNames ?? this.unmatchedNames,
+    unmatchedPhones: unmatchedPhones ?? this.unmatchedPhones,
+    duplicates: duplicates ?? this.duplicates,
+    usedMockRecognizer: usedMockRecognizer,
+    isSaving: isSaving ?? this.isSaving,
+    error: clearError ? null : (error ?? this.error),
+    summary: summary ?? this.summary,
+  );
 }
 
 /// Drives the review/edit screen and the save transaction (§10, §12, §13).
@@ -106,11 +105,11 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
     required DuplicateDetectionService duplicates,
     required PhoneNumberParser phoneParser,
     required Future<void> Function(List<TemporaryContact>) registerTemporary,
-  })  : _contacts = contacts,
-        _duplicates = duplicates,
-        _phoneParser = phoneParser,
-        _registerTemporary = registerTemporary,
-        super(const ReviewState());
+  }) : _contacts = contacts,
+       _duplicates = duplicates,
+       _phoneParser = phoneParser,
+       _registerTemporary = registerTemporary,
+       super(const ReviewState());
 
   final ContactService _contacts;
   final DuplicateDetectionService _duplicates;
@@ -129,25 +128,59 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
 
   // ── Per-contact editing ──────────────────────────────────────────────────
 
-  void editName(String id, String name) => _replace(
-        id,
-        (c) => c.copyWith(name: name, wasEditedByUser: true),
-      );
+  void editName(String id, String name) => _replace(id, (c) {
+    final issues = Set<PairingIssue>.from(c.issues);
+    if (name.trim().isNotEmpty) {
+      issues.remove(PairingIssue.unmatchedPhone);
+    }
+    return c.copyWith(name: name, issues: issues, wasEditedByUser: true);
+  });
 
   void editPhone(String id, String phone) => _replace(id, (c) {
-        final parsed = _phoneParser.parse(phone);
-        final issues = Set<PairingIssue>.from(c.issues)
-          ..remove(PairingIssue.invalidPhone);
-        if (!parsed.isValid && phone.trim().isNotEmpty) {
-          issues.add(PairingIssue.invalidPhone);
-        }
-        return c.copyWith(
-          phone: phone,
+    final parsed = _phoneParser.parse(phone);
+    final issues = Set<PairingIssue>.from(c.issues)
+      ..remove(PairingIssue.invalidPhone);
+    if (phone.trim().isNotEmpty) {
+      issues.remove(PairingIssue.unmatchedName);
+    }
+    if (!parsed.isValid && phone.trim().isNotEmpty) {
+      issues.add(PairingIssue.invalidPhone);
+    }
+    return c.copyWith(
+      phone: phone,
+      parsedPhone: parsed,
+      issues: issues,
+      wasEditedByUser: true,
+    );
+  });
+
+  /// Adds a contact typed by the user when OCR missed all or part of a row.
+  void addManualContact({
+    required String name,
+    required String phone,
+    ExpirySelection expiry = const ExpirySelection.permanent(),
+  }) {
+    final cleanName = name.trim();
+    final cleanPhone = phone.trim();
+    if (cleanName.isEmpty || cleanPhone.isEmpty) return;
+
+    final parsed = _phoneParser.parse(cleanPhone);
+    state = state.copyWith(
+      contacts: [
+        ...state.contacts,
+        ExtractedContact(
+          id: 'manual_${DateTime.now().microsecondsSinceEpoch}',
+          name: cleanName,
+          phone: cleanPhone,
+          confidence: 1.0,
           parsedPhone: parsed,
-          issues: issues,
+          issues: parsed.isValid ? const {} : {PairingIssue.invalidPhone},
+          expiry: expiry,
           wasEditedByUser: true,
-        );
-      });
+        ),
+      ],
+    );
+  }
 
   void toggleSelected(String id) =>
       _replace(id, (c) => c.copyWith(isSelected: !c.isSelected));
@@ -156,8 +189,8 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
       _replace(id, (c) => c.copyWith(expiry: expiry));
 
   void remove(String id) => state = state.copyWith(
-        contacts: state.contacts.where((c) => c.id != id).toList(),
-      );
+    contacts: state.contacts.where((c) => c.id != id).toList(),
+  );
 
   /// Manually pairs a leftover name with a leftover number (§10).
   void pairManually(ContactCandidate name, ContactCandidate phone) {
@@ -177,10 +210,12 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
 
     state = state.copyWith(
       contacts: [...state.contacts, contact],
-      unmatchedNames:
-          state.unmatchedNames.where((c) => c != name).toList(growable: false),
-      unmatchedPhones:
-          state.unmatchedPhones.where((c) => c != phone).toList(growable: false),
+      unmatchedNames: state.unmatchedNames
+          .where((c) => c != name)
+          .toList(growable: false),
+      unmatchedPhones: state.unmatchedPhones
+          .where((c) => c != phone)
+          .toList(growable: false),
     );
   }
 
@@ -212,16 +247,16 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
   // ── Bulk actions (§34) ───────────────────────────────────────────────────
 
   void selectAll(bool selected) => state = state.copyWith(
-        contacts: state.contacts
-            .map((c) => c.copyWith(isSelected: selected))
-            .toList(growable: false),
-      );
+    contacts: state.contacts
+        .map((c) => c.copyWith(isSelected: selected))
+        .toList(growable: false),
+  );
 
   void setExpiryForSelected(ExpirySelection expiry) => state = state.copyWith(
-        contacts: state.contacts
-            .map((c) => c.isSelected ? c.copyWith(expiry: expiry) : c)
-            .toList(growable: false),
-      );
+    contacts: state.contacts
+        .map((c) => c.isSelected ? c.copyWith(expiry: expiry) : c)
+        .toList(growable: false),
+  );
 
   void markSelectedTemporary(ExpiryOption option, {DateTime? customValue}) =>
       setExpiryForSelected(
@@ -252,9 +287,11 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
   void resolveDuplicate(String contactId, DuplicateResolution resolution) =>
       state = state.copyWith(
         duplicates: state.duplicates
-            .map((d) => d.extracted.id == contactId
-                ? d.copyWith(resolution: resolution)
-                : d)
+            .map(
+              (d) => d.extracted.id == contactId
+                  ? d.copyWith(resolution: resolution)
+                  : d,
+            )
             .toList(growable: false),
       );
 
@@ -284,9 +321,7 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
     try {
       await _contacts.ensurePermission();
 
-      final resolutions = {
-        for (final d in state.duplicates) d.extracted.id: d,
-      };
+      final resolutions = {for (final d in state.duplicates) d.extracted.id: d};
 
       for (final contact in state.selected) {
         if (!contact.isComplete) {
@@ -368,16 +403,19 @@ class ReviewNotifier extends StateNotifier<ReviewState> {
     }
   }
 
-  void _replace(String id, ExtractedContact Function(ExtractedContact) update) =>
-      state = state.copyWith(
-        contacts: state.contacts
-            .map((c) => c.id == id ? update(c) : c)
-            .toList(growable: false),
-      );
+  void _replace(
+    String id,
+    ExtractedContact Function(ExtractedContact) update,
+  ) => state = state.copyWith(
+    contacts: state.contacts
+        .map((c) => c.id == id ? update(c) : c)
+        .toList(growable: false),
+  );
 }
 
-final reviewProvider =
-    StateNotifierProvider<ReviewNotifier, ReviewState>((ref) {
+final reviewProvider = StateNotifierProvider<ReviewNotifier, ReviewState>((
+  ref,
+) {
   final repository = ref.watch(temporaryContactRepositoryProvider);
   final cleanup = ref.watch(backgroundCleanupProvider);
 
@@ -390,9 +428,7 @@ final reviewProvider =
       // Trigger 5: run cleanup when new temporary contacts are saved, and ask
       // the OS to check again soon in case the app is closed immediately (§15).
       await ref.read(expiryServiceProvider).runCleanup();
-      await cleanup.requestImmediateCleanup(
-        delay: const Duration(minutes: 15),
-      );
+      await cleanup.requestImmediateCleanup(delay: const Duration(minutes: 15));
       ref.invalidate(temporaryContactsProvider);
     },
   );

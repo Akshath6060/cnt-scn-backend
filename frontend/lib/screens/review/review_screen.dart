@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/contact_candidate.dart';
 import '../../models/expiry_option.dart';
+import '../../models/extracted_contact.dart';
 import '../../providers/review_provider.dart';
 import '../../providers/scan_session_provider.dart';
 import '../../services/duplicate_detection_service.dart';
@@ -28,6 +29,11 @@ class ReviewScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text('${state.contacts.length} contacts found'),
         actions: [
+          IconButton(
+            tooltip: 'Add contact manually',
+            onPressed: () => _openManualContact(context, ref),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+          ),
           TextButton(
             onPressed: state.contacts.isEmpty
                 ? null
@@ -85,10 +91,8 @@ class ReviewScreen extends ConsumerWidget {
                           names: state.unmatchedNames,
                           phones: state.unmatchedPhones,
                           onAdopt: notifier.adoptUnmatched,
-                          onPairManually: () => _openManualPairing(
-                            context,
-                            ref,
-                          ),
+                          onPairManually: () =>
+                              _openManualPairing(context, ref),
                         ),
                     ],
                   ),
@@ -128,6 +132,25 @@ class ReviewScreen extends ConsumerWidget {
               ),
             ),
     );
+  }
+
+  Future<void> _openManualContact(BuildContext context, WidgetRef ref) async {
+    final draft = ExtractedContact(
+      id: 'manual_draft',
+      name: '',
+      phone: '',
+      confidence: 1.0,
+      wasEditedByUser: true,
+    );
+    final edited = await ContactEditScreen.open(context, draft);
+    if (edited == null || !context.mounted) return;
+    ref
+        .read(reviewProvider.notifier)
+        .addManualContact(
+          name: edited.name,
+          phone: edited.phone,
+          expiry: edited.expiry,
+        );
   }
 
   Future<void> _openManualPairing(BuildContext context, WidgetRef ref) async {
@@ -238,9 +261,7 @@ class _BulkActionBar extends StatelessWidget {
                       )
                     : const Icon(Icons.save_outlined),
                 label: Text(
-                  isSaving
-                      ? 'Saving…'
-                      : 'Save $selectedCount to phonebook',
+                  isSaving ? 'Saving…' : 'Save $selectedCount to phonebook',
                 ),
               ),
             ),
@@ -276,8 +297,9 @@ class _LeftoversSection extends StatelessWidget {
           children: [
             Text(
               'Not matched',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
@@ -292,7 +314,9 @@ class _LeftoversSection extends StatelessWidget {
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(
-                  candidate.isPhone ? Icons.phone_outlined : Icons.person_outline,
+                  candidate.isPhone
+                      ? Icons.phone_outlined
+                      : Icons.person_outline,
                   size: 20,
                 ),
                 title: Text(candidate.text),
@@ -333,16 +357,16 @@ class _MockBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          Icon(Icons.science_outlined,
-              size: 18, color: scheme.onTertiaryContainer),
+          Icon(
+            Icons.science_outlined,
+            size: 18,
+            color: scheme.onTertiaryContainer,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'These results came from the mock recogniser, not a trained model.',
-              style: TextStyle(
-                fontSize: 13,
-                color: scheme.onTertiaryContainer,
-              ),
+              style: TextStyle(fontSize: 13, color: scheme.onTertiaryContainer),
             ),
           ),
         ],
@@ -371,8 +395,7 @@ class _AttentionBanner extends StatelessWidget {
             child: Text(
               '$count ${count == 1 ? 'entry needs' : 'entries need'} '
               'a quick check before saving.',
-              style:
-                  TextStyle(fontSize: 13, color: scheme.onErrorContainer),
+              style: TextStyle(fontSize: 13, color: scheme.onErrorContainer),
             ),
           ),
         ],
@@ -413,7 +436,5 @@ class _EmptyState extends StatelessWidget {
 }
 
 /// Re-exported so the review screen's collaborators share one import.
-typedef DuplicateResolutionCallback = void Function(
-  String contactId,
-  DuplicateResolution resolution,
-);
+typedef DuplicateResolutionCallback =
+    void Function(String contactId, DuplicateResolution resolution);

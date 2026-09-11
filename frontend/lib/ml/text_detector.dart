@@ -6,6 +6,7 @@ import '../imaging/gray_image.dart';
 import '../imaging/kernels/contours.dart';
 import '../imaging/kernels/morphology.dart';
 import '../imaging/kernels/threshold.dart';
+import '../models/bounding_box.dart';
 import '../models/recognized_text.dart';
 
 /// Stage 3.1 — locates handwritten text regions (§6).
@@ -46,8 +47,9 @@ class MorphologicalTextDetector implements TextDetector {
     final gray = GrayImage.fromImage(document);
     var binary = Threshold.adaptiveMean(gray, offset: 10);
 
-    // Drop single-pixel speckle before measuring character size.
-    binary = Morphology.open(binary, radiusX: 1, radiusY: 1);
+    // Do not open/erode here: the page preprocessing stage has already
+    // removed isolated noise. A second opening deleted thin handwritten
+    // strokes and split digits into disconnected upper/lower fragments.
 
     // 1. Character-level components give us the page's text scale.
     final glyphs = Contours.connectedComponents(binary, minPixels: 6);
@@ -60,13 +62,24 @@ class MorphologicalTextDetector implements TextDetector {
     //    The horizontal radius spans inter-character gaps but not the wide
     //    column gap between a name and its phone number, which is what keeps
     //    the two from fusing into one region.
-    final mergeX = math.max(1, (glyphHeight * 0.45).round());
-    final mergeY = math.max(1, (glyphHeight * 0.10).round());
+    // Closing spans twice the radius. 0.75x the glyph height therefore joins
+    // letters/digits across a normal handwritten gap while leaving the much
+    // wider name/phone column gap intact. A smaller radius fragmented real
+    // device captures into one region per character, which a line-trained OCR
+    // model cannot recognise reliably.
+    final mergeX = math.max(2, (glyphHeight * 1.0).round());
+    // Handwritten digits such as 5 and 8 and descenders such as y are often
+    // broken into vertically separated components by thresholding. Join those
+    // pieces before component extraction.
+    final mergeY = math.max(2, (glyphHeight * 0.35).round());
     final merged = Morphology.close(binary, radiusX: mergeX, radiusY: mergeY);
 
     // 3. Regions are the merged components, filtered for text plausibility.
     final minPixels = math.max(12, (glyphHeight * glyphHeight * 0.10).round());
-    final components = Contours.connectedComponents(merged, minPixels: minPixels);
+    final components = Contours.connectedComponents(
+      merged,
+      minPixels: minPixels,
+    );
 
     final regions = <TextRegion>[];
     for (final c in components) {
@@ -91,31 +104,93 @@ class MorphologicalTextDetector implements TextDetector {
       );
     }
 
+    // Morphology can still leave disconnected pen strokes as neighbouring
+    // boxes. Merge geometrically aligned boxes into complete field crops so
+    // the line recogniser sees the whole name or phone number.
+    final fieldRegions = _mergeNearbyRegions(regions, glyphHeight);
+
     // Reading order: top to bottom, then left to right within a row.
     final rowTolerance = glyphHeight * 0.6;
-    regions.sort((a, b) {
+    fieldRegions.sort((a, b) {
       final dy = a.boundingBox.centerY - b.boundingBox.centerY;
       if (dy.abs() > rowTolerance) return dy.compareTo(0);
       return a.boundingBox.left.compareTo(b.boundingBox.left);
     });
 
-    return regions;
+    return fieldRegions;
+  }
+
+  List<TextRegion> _mergeNearbyRegions(
+    List<TextRegion> input,
+    double glyphHeight,
+  ) {
+    final pending = [...input]..sort(
+      (a, b) => a.boundingBox.left.compareTo(b.boundingBox.left),
+    );
+    final merged = <TextRegion>[];
+
+    for (final region in pending) {
+      var current = region;
+      var joined = true;
+      while (joined) {
+        joined = false;
+        for (var i = 0; i < merged.length; i++) {
+          final other = merged[i];
+          final a = current.boundingBox;
+          final b = other.boundingBox;
+          final aligned = a.verticalOverlapRatio(b) >= 0.10;
+          final close = a.horizontalGapTo(b) <= glyphHeight * 2.5;
+          if (!aligned || !close) continue;
+
+          current = TextRegion(
+            boundingBox: _union(a, b),
+            confidence: math.min(current.confidence, other.confidence),
+          );
+          merged.removeAt(i);
+          joined = true;
+          break;
+        }
+      }
+      merged.add(current);
+    }
+    return merged;
+  }
+
+  BoundingBox _union(BoundingBox a, BoundingBox b) {
+    final left = math.min(a.left, b.left);
+    final top = math.min(a.top, b.top);
+    final right = math.max(a.right, b.right);
+    final bottom = math.max(a.bottom, b.bottom);
+    return BoundingBox(
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    );
   }
 
   /// Median height of plausibly character-sized components.
   ///
   /// The median resists both dust specks and a long rule line, either of which
   /// would wreck a mean.
-  double _typicalGlyphHeight(List<ConnectedComponent> glyphs, int documentHeight) {
-    final heights = glyphs
-        .map((g) => g.box.height)
-        // Ignore anything taller than a fifth of the page: that is a border or
-        // a fold shadow, not a character.
-        .where((h) => h >= 3 && h <= documentHeight * 0.2)
-        .toList()
-      ..sort();
+  double _typicalGlyphHeight(
+    List<ConnectedComponent> glyphs,
+    int documentHeight,
+  ) {
+    final heights =
+        glyphs
+            .map((g) => g.box.height)
+            // Ignore anything taller than a fifth of the page: that is a border or
+            // a fold shadow, not a character.
+            .where((h) => h >= 3 && h <= documentHeight * 0.2)
+            .toList()
+          ..sort();
     if (heights.isEmpty) return 0;
-    return heights[heights.length ~/ 2];
+    // Camera noise creates many short components even after opening. Taking
+    // the 70th percentile instead of the median prevents those specks from
+    // shrinking the word-merging kernel below the actual handwriting scale.
+    final index = ((heights.length - 1) * 0.70).round();
+    return heights[index];
   }
 
   /// Text-likeness score in [0, 1]; 0 rejects the region.
@@ -177,7 +252,8 @@ class TfliteTextDetector implements TextDetector {
   String get engineName => 'TFLite text detector';
 
   @override
-  Future<List<TextRegion>> detect(img.Image document) => fallback.detect(document);
+  Future<List<TextRegion>> detect(img.Image document) =>
+      fallback.detect(document);
 
   @override
   Future<void> dispose() => fallback.dispose();
@@ -195,8 +271,14 @@ extension TextRegionListX on List<TextRegion> {
     for (final region in sorted) {
       final isContained = kept.any((k) {
         final b = region.boundingBox, o = k.boundingBox;
-        final ix = math.max(0.0, math.min(b.right, o.right) - math.max(b.left, o.left));
-        final iy = math.max(0.0, math.min(b.bottom, o.bottom) - math.max(b.top, o.top));
+        final ix = math.max(
+          0.0,
+          math.min(b.right, o.right) - math.max(b.left, o.left),
+        );
+        final iy = math.max(
+          0.0,
+          math.min(b.bottom, o.bottom) - math.max(b.top, o.top),
+        );
         final intersection = ix * iy;
         return b.area > 0 && intersection / b.area >= overlapThreshold;
       });
